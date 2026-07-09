@@ -113,6 +113,9 @@
     .save-btn { background-color: #8b5cf6; color: white; }
     .save-btn:hover:not(:disabled) { background-color: #7c3aed; }
 
+    .clear-btn { background-color: #64748b; color: white; }
+    .clear-btn:hover:not(:disabled) { background-color: #475569; }
+
     button:disabled { opacity: 0.35; cursor: not-allowed; }
 
     /* Metric Cards */
@@ -188,6 +191,7 @@
       <button id="recordBtn" class="record-btn" disabled>Record</button>
       <button id="stopBtn" class="stop-btn" disabled>Stop</button>
       <button id="saveBtn" class="save-btn" disabled>Save CSV</button>
+      <button id="clearBtn" class="clear-btn" disabled>Clear</button>
     </div>
 
     <div class="chart-wrapper">
@@ -213,6 +217,7 @@
     const recordBtn = document.getElementById('recordBtn');
     const stopBtn = document.getElementById('stopBtn');
     const saveBtn = document.getElementById('saveBtn');
+    const clearBtn = document.getElementById('clearBtn');
 
     const btnCelsius = document.getElementById('btnCelsius');
     const btnFahrenheit = document.getElementById('btnFahrenheit');
@@ -337,6 +342,7 @@
           telemetryChart.update('none');
 
           saveBtn.disabled = false;
+          clearBtn.disabled = false;
         }
       }
     }
@@ -396,72 +402,4 @@
       link.setAttribute("download", `dht11_telemetry_${new Date().toISOString().slice(0,10)}.csv`);
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
-    });
-
-    // Connect Button Event
-    connectBtn.addEventListener('click', async () => {
-      if ('serial' in navigator) {
-        try {
-          port = await navigator.serial.requestPort();
-          await port.open({ baudRate: 9600 });
-
-          connectBtn.disabled = true;
-          disconnectBtn.disabled = false;
-          recordBtn.disabled = false;
-
-          readSerialData();
-
-        } catch (err) {
-          console.error('Error connecting:', err);
-          alert('Failed to connect: ' + err.message);
-        }
-      } else {
-        alert('Web Serial API is not supported in this browser.');
-      }
-    });
-
-    // Disconnect Button Event
-    disconnectBtn.addEventListener('click', async () => {
-      if (port) {
-        try {
-          isRecording = false;
-
-          if (reader) {
-            await reader.cancel();
-            await readableStreamClosed.catch(() => {});
-            reader = null;
-          }
-
-          await port.close();
-        } catch (err) {
-          console.warn('Disconnect warning:', err);
-        } finally {
-          port = null;
-
-          connectBtn.disabled = false;
-          disconnectBtn.disabled = true;
-          recordBtn.disabled = true;
-          stopBtn.disabled = true;
-
-          tempDisplay.textContent = `-- °${currentUnit}`;
-          humDisplay.textContent = '-- %';
-        }
-      }
-    });
-
-    // Record Control Events
-    recordBtn.addEventListener('click', () => {
-      isRecording = true;
-      recordBtn.disabled = true;
-      stopBtn.disabled = false;
-    });
-
-    stopBtn.addEventListener('click', () => {
-      isRecording = false;
-      recordBtn.disabled = false;
-      stopBtn.disabled = true;
-    });
-  </script>
-</body>
-</html>
+      document.body
