@@ -402,4 +402,88 @@
       link.setAttribute("download", `dht11_telemetry_${new Date().toISOString().slice(0,10)}.csv`);
       document.body.appendChild(link);
       link.click();
-      document.body
+      document.body.removeChild(link);
+    });
+
+    // Clear Recorded Chart & Data History
+    clearBtn.addEventListener('click', () => {
+      rawTempHistory = [];
+      humidityHistory = [];
+      timeLabels = [];
+      timeIndex = 0;
+
+      telemetryChart.data.labels = [];
+      telemetryChart.data.datasets[0].data = [];
+      telemetryChart.data.datasets[1].data = [];
+      telemetryChart.update();
+
+      saveBtn.disabled = true;
+      clearBtn.disabled = true;
+    });
+
+    // Connect Button Event
+    connectBtn.addEventListener('click', async () => {
+      if ('serial' in navigator) {
+        try {
+          port = await navigator.serial.requestPort();
+          await port.open({ baudRate: 9600 });
+
+          connectBtn.disabled = true;
+          disconnectBtn.disabled = false;
+          recordBtn.disabled = false;
+
+          readSerialData();
+
+        } catch (err) {
+          console.error('Error connecting:', err);
+          alert('Failed to connect: ' + err.message);
+        }
+      } else {
+        alert('Web Serial API is not supported in this browser.');
+      }
+    });
+
+    // Disconnect Button Event
+    disconnectBtn.addEventListener('click', async () => {
+      if (port) {
+        try {
+          isRecording = false;
+
+          if (reader) {
+            await reader.cancel();
+            await readableStreamClosed.catch(() => {});
+            reader = null;
+          }
+
+          await port.close();
+        } catch (err) {
+          console.warn('Disconnect warning:', err);
+        } finally {
+          port = null;
+
+          connectBtn.disabled = false;
+          disconnectBtn.disabled = true;
+          recordBtn.disabled = true;
+          stopBtn.disabled = true;
+
+          tempDisplay.textContent = `-- °${currentUnit}`;
+          humDisplay.textContent = '-- %';
+        }
+      }
+    });
+
+    // Record Control Events
+    recordBtn.addEventListener('click', () => {
+      isRecording = true;
+      recordBtn.disabled = true;
+      stopBtn.disabled = false;
+    });
+
+    stopBtn.addEventListener('click', () => {
+      isRecording = false;
+      recordBtn.disabled = false;
+      stopBtn.disabled = true;
+    });
+  </script>
+</body>
+</html>
