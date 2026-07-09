@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DHT11 Live Logger</title>
+  <title>DHT11 Telemetry Studio</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
@@ -40,14 +40,47 @@
       border: 1px solid var(--card-border);
     }
 
+    .header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
     h1 {
       font-size: 22px;
-      margin-top: 0;
-      margin-bottom: 20px;
-      text-align: center;
+      margin: 0;
       letter-spacing: 0.5px;
     }
 
+    /* Unit Toggle Switch */
+    .unit-switch {
+      display: flex;
+      align-items: center;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 4px;
+      border-radius: 20px;
+      border: 1px solid var(--card-border);
+    }
+
+    .unit-btn {
+      padding: 4px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      border-radius: 16px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .unit-btn.active {
+      background: var(--accent-cyan);
+      color: #0f172a;
+    }
+
+    /* Controls */
     .btn-group {
       display: flex;
       gap: 10px;
@@ -77,9 +110,12 @@
     .stop-btn { background-color: #f59e0b; color: #0f172a; }
     .stop-btn:hover:not(:disabled) { background-color: #d97706; color: white; }
 
+    .save-btn { background-color: #8b5cf6; color: white; }
+    .save-btn:hover:not(:disabled) { background-color: #7c3aed; }
+
     button:disabled { opacity: 0.35; cursor: not-allowed; }
 
-    /* Telemetry Display Cards */
+    /* Metric Cards */
     .metric-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -124,7 +160,13 @@
 <body>
 
   <div class="container">
-    <h1>DHT11 Telemetry Studio</h1>
+    <div class="header-row">
+      <h1>DHT11 Telemetry Studio</h1>
+      <div class="unit-switch">
+        <button id="btnCelsius" class="unit-btn active">°C</button>
+        <button id="btnFahrenheit" class="unit-btn">°F</button>
+      </div>
+    </div>
 
     <div class="btn-group">
       <button id="connectBtn" class="connect-btn">Connect</button>
@@ -145,6 +187,7 @@
     <div class="btn-group">
       <button id="recordBtn" class="record-btn" disabled>Record</button>
       <button id="stopBtn" class="stop-btn" disabled>Stop</button>
+      <button id="saveBtn" class="save-btn" disabled>Save CSV</button>
     </div>
 
     <div class="chart-wrapper">
@@ -156,11 +199,23 @@
     let port, reader, readableStreamClosed;
     let isRecording = false;
     let timeIndex = 0;
+    let currentUnit = 'C'; // 'C' or 'F'
+
+    // Raw temperature storage in Celsius so unit switching can convert dynamically
+    let rawTempHistory = [];
+    let humidityHistory = [];
+    let timeLabels = [];
+    let lastRawTemp = null;
+    let lastRawHum = null;
 
     const connectBtn = document.getElementById('connectBtn');
     const disconnectBtn = document.getElementById('disconnectBtn');
     const recordBtn = document.getElementById('recordBtn');
     const stopBtn = document.getElementById('stopBtn');
+    const saveBtn = document.getElementById('saveBtn');
+
+    const btnCelsius = document.getElementById('btnCelsius');
+    const btnFahrenheit = document.getElementById('btnFahrenheit');
 
     const tempDisplay = document.getElementById('tempDisplay');
     const humDisplay = document.getElementById('humDisplay');
@@ -223,7 +278,12 @@
       }
     });
 
-    // Read serial data line-by-line continuously
+    // Helper to convert C to F
+    function cToF(c) {
+      return (c * 9 / 5) + 32;
+    }
+
+    // Read serial stream line-by-line
     async function readSerialData() {
       const textDecoder = new TextDecoderStream();
       readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
@@ -238,40 +298,106 @@
 
           buffer += value;
           const lines = buffer.split('\n');
-          buffer = lines.pop(); // Retain unfinished tail string
+          buffer = lines.pop();
 
           for (const line of lines) {
             parseAndProcessLine(line.trim());
           }
         }
       } catch (err) {
-        console.warn('Reader error or cancelled stream:', err);
+        console.warn('Reader stream cancelled or ended:', err);
       }
     }
 
-    // Process incoming line ("23.50,45.00")
+    // Process incoming string ("23.50,45.00")
     function parseAndProcessLine(line) {
       if (!line) return;
 
       const parts = line.split(',');
       if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-        const temp = parseFloat(parts[0]).toFixed(1);
-        const hum = parseFloat(parts[1]).toFixed(1);
+        lastRawTemp = parseFloat(parts[0]);
+        lastRawHum = parseFloat(parts[1]);
 
-        // Update real-time metric display cards
-        tempDisplay.textContent = `${temp} °C`;
-        humDisplay.textContent = `${hum} %`;
+        updateCards();
 
-        // If recording is active, push to chart
+        // If recording is active, store history
         if (isRecording) {
           timeIndex++;
-          telemetryChart.data.labels.push(`${timeIndex}s`);
-          telemetryChart.data.datasets[0].data.push(temp);
-          telemetryChart.data.datasets[1].data.push(hum);
-          telemetryChart.update('none'); // Smooth live update
+          const label = `${timeIndex}s`;
+
+          timeLabels.push(label);
+          rawTempHistory.push(lastRawTemp);
+          humidityHistory.push(lastRawHum);
+
+          const displayTemp = currentUnit === 'C' ? lastRawTemp : cToF(lastRawTemp);
+
+          telemetryChart.data.labels.push(label);
+          telemetryChart.data.datasets[0].data.push(displayTemp.toFixed(1));
+          telemetryChart.data.datasets[1].data.push(lastRawHum.toFixed(1));
+          telemetryChart.update('none');
+
+          saveBtn.disabled = false;
         }
       }
     }
+
+    // Update Telemetry Display Cards
+    function updateCards() {
+      if (lastRawTemp !== null && lastRawHum !== null) {
+        const temp = currentUnit === 'C' ? lastRawTemp : cToF(lastRawTemp);
+        tempDisplay.textContent = `${temp.toFixed(1)} °${currentUnit}`;
+        humDisplay.textContent = `${lastRawHum.toFixed(1)} %`;
+      }
+    }
+
+    // Switch Unit (°C / °F)
+    function setUnit(unit) {
+      currentUnit = unit;
+      if (unit === 'C') {
+        btnCelsius.classList.add('active');
+        btnFahrenheit.classList.remove('active');
+      } else {
+        btnFahrenheit.classList.add('active');
+        btnCelsius.classList.remove('active');
+      }
+
+      // Update Chart Y-Axis Label and Data Points
+      const unitLabel = `Temp (°${currentUnit})`;
+      telemetryChart.options.scales.yTemp.title.text = unitLabel;
+      telemetryChart.data.datasets[0].label = unitLabel;
+
+      telemetryChart.data.datasets[0].data = rawTempHistory.map(t => 
+        (currentUnit === 'C' ? t : cToF(t)).toFixed(1)
+      );
+      
+      telemetryChart.update();
+      updateCards();
+    }
+
+    btnCelsius.addEventListener('click', () => setUnit('C'));
+    btnFahrenheit.addEventListener('click', () => setUnit('F'));
+
+    // Export Data as CSV File
+    saveBtn.addEventListener('click', () => {
+      if (rawTempHistory.length === 0) return;
+
+      let csvContent = `data:text/csv;charset=utf-8,Time (s),Temperature (°${currentUnit}),Humidity (%)\n`;
+
+      timeLabels.forEach((label, index) => {
+        const rawT = rawTempHistory[index];
+        const displayT = (currentUnit === 'C' ? rawT : cToF(rawT)).toFixed(2);
+        const hum = humidityHistory[index].toFixed(2);
+        csvContent += `${label},${displayT},${hum}\n`;
+      });
+
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `dht11_telemetry_${new Date().toISOString().slice(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
 
     // Connect Button Event
     connectBtn.addEventListener('click', async () => {
@@ -318,7 +444,7 @@
           recordBtn.disabled = true;
           stopBtn.disabled = true;
 
-          tempDisplay.textContent = '-- °C';
+          tempDisplay.textContent = `-- °${currentUnit}`;
           humDisplay.textContent = '-- %';
         }
       }
